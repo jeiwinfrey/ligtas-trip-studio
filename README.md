@@ -1,36 +1,74 @@
-# LIGTAS Trip Studio
+# LIGTAS Trip Studio — manual trips
 
-A browser-based synthetic GPS dataset builder for Chapter 3 development and controlled replay. It does not collect commuter observations.
+A local map editor for creating synthetic vehicle GPS recordings every 10 seconds. Manually plan each trip’s recording points, stops, detours and speed curve, then export CSV, JSON or GPX files in ZIPs.
 
-## Run
+## Clone and run
 
-Run `npm run dev` from this directory and open http://localhost:4173. No package installation is needed. Node 18+ runs `npm test`; Python 3 serves the app.
+You need **Git**, **Python 3**, and a modern web browser. Internet access is needed for map tiles and OSRM road routing. No API key, account, package installation or build step is required; the app and its libraries are included in `dist/`.
 
-## Workflow
+```sh
+git clone https://github.com/jeiwinfrey/ligtas-trip-studio.git
+cd ligtas-trip-studio
+```
 
-1. Add and name a route. Click the map in travel order for a start, destination and via points. Drag markers to move them. Coordinates can also be entered through the expandable form.
-2. Build the road route. OSRM is queried independently for outbound and return journeys, respecting each direction's roads. Export requires valid fetched road geometry. Configure another HTTPS OSRM server through the expandable form if needed.
-3. Select Add stop and click along the route. Stops snap onto the current outbound geometry and become intermediate waypoints visited in each direction. Set a duration or choose Random time (30–300 seconds). Rebuild after moving or adding waypoints.
-4. Edit each direction's speed profile. Click the graph to add points; drag them or edit the table. The axis measures **moving time**, paused during explicit stops. Grid spacing starts at 30 seconds; pointer edits snap to 5 seconds. Speeds are linearly interpolated; the final speed continues until arrival.
-5. Set trip counts, first departure timestamps in Asia/Manila, repeat interval, seed and variations. Generate previews and scrub or play on the map. Download individual files, one route ZIP or all routes in a ZIP.
-6. Save project JSON as a backup. Changes are also stored automatically in this browser.
+On **macOS or Linux**, start the local server:
 
-## Output contract
+```sh
+python3 -m http.server 4173 --bind 127.0.0.1 --directory dist
+```
 
-CSV is the default, with exactly `timestamp,latitude,longitude`. JSON and GPX are also supported. Each trip is a separate neutral filename such as `trip-0001.csv`; recordings have no direction field. Timestamps use ISO 8601 UTC (`Z`) and are exactly 10 seconds apart. Stop coordinates remain stationary. The destination is held until the next exact sample after arrival.
+On **Windows** (PowerShell or Command Prompt), use:
 
-Each ZIP contains separate route folders with recordings, a manifest and project JSON. The manifest identifies `source: synthetic` and records directions, seeds, actual stop events, speed factors, profile settings, routing provenance and cached road geometry. A project and seed reproduce identical GPS rows until geometry or settings change. Rebuilding with OSRM may return changed roads.
+```powershell
+py -3 -m http.server 4173 --bind 127.0.0.1 --directory dist
+```
 
-Speed variation draws a seeded multiplier per trip. Stop duration variation is independent per stop. Set both to zero for identical behavior. This version does not add GPS noise, missing uploads, battery simulation or vehicle dynamics. Profiles are controlled assumptions; calibrate them against observations before using them as realistic traffic distributions. Both directions share reversed intermediate places but use their own road geometry and speed profiles. Create a separate route if different intermediate places are needed for the return journey.
+If Windows does not have the `py` launcher, use `python` in its place. Open **http://localhost:4173/** in your browser and keep the terminal running. Press **Ctrl+C** to stop the server. Serve the folder using these commands rather than opening `index.html` directly, since it uses JavaScript modules.
 
-## Dependencies and limits
+If port 4173 is busy, replace it with 4174 in the command and open http://localhost:4174/. Trip projects are saved in your browser on that address; use **Save project** to download a portable backup and **Open project** to restore it or share it with your friend. Exported recordings are separate from the editable project backup.
 
-Map tiles use OpenStreetMap; routing defaults to the OSRM public demo. These require internet access. Selected waypoint coordinates go to the routing server; viewport tile requests go to the map provider. Project storage, simulation and exports run in the browser. No application database is used. Configure your own OSRM service for sustained dataset production.
+### Optional npm commands
 
-Limits: 50 routes per project, 100 waypoints per route, 500 trips per direction, 24 hours per recording, 1 million observations per route, and 2 million per all-route export. Speeds are bounded to 160 km/h; stops to 7,200 seconds. Same-direction trips must not overlap in the configured schedule.
+With **Node.js 18+ and npm** installed, you can also use:
 
-## Verification
+```sh
+npm run dev  # Starts Python via python3; macOS/Linux or Windows with python3 available
+npm test     # Runs the simulation and model tests
+```
 
-`npm test` checks distance interpolation, integrated speeds, timed stops, exact sampling, arrival, return travel, reproducible variation, invalid input and all three encodings.
+`npm install` is unnecessary because the project has no npm dependencies.
 
-References: [OSRM route API](https://project-osrm.org/docs/v5.22.0/api/), [Leaflet API](https://leafletjs.com/reference). Vendored Leaflet 1.9.4 and JSZip 3.10.1 are distributed with their licenses in `dist/vendor`. Map attribution is displayed in the editor.
+## Design each trip manually
+
+1. **Create a route and set A/B once.** Choose Home (A) and Destination (B) on the map. Once both are set, they are locked for this route. They cannot be dragged, removed or reassigned from any trip. These are route reference points, separate from each trip’s recording start and end. Create a new route to use different references.
+2. **Add one trip.** Choose A → B or B → A and its departure/arrival in Manila time. Each new trip starts with an empty stop and detour list and its own editable speed curve, seed and variation settings.
+3. **Plan this trip on its map.** Set recording start (S) and recording end (E) for this trip first. New trips leave both blank. They can be placed anywhere, dragged, removed or reassigned without changing A/B or other trips. Use Add detour to place intermediate road waypoints in travel order, and Add stop to choose stop locations and durations. Drag or remove these trip points as needed, then Update this trip’s path with OSRM. Each trip stores its own road geometry. Switching trips switches the map; changes do not affect other trips or fixed A/B.
+4. **Shape its full speed timeline.** Small dots show each 10-second GPS observation; large dots are editable speed controls. Click to add a control anywhere, drag controls, or edit times and speeds in the table. Stop bands consume elapsed time at zero speed. Axis labels span the entire chosen departure-to-arrival window.
+5. **Choose seeded variation.** Expand Seeded variation for this trip to set speed variation, stop-duration variation and seed. Individual control speeds vary reproducibly. Stop variation uses a separate seeded stream, so adding speed controls does not randomly redraw stop durations.
+6. **Preview and export.** Preview/download the selected recording, export its route, or export all routes. ZIPs group manually added recordings into a-to-b/ and b-to-a/ folders inside each route. Project JSON backs up fixed endpoints and every independently designed trip.
+
+## Fixed times and consistent motion
+
+Departure, arrival, road distance and stopping time constrain the area under the speed curve. The editor treats speed controls as a shape and scales the seeded curve over available driving time so it reaches the destination at exactly the requested arrival. It shows the resulting km/h in the graph and in the Fitted column. Increasing stop durations leaves less driving time and therefore changes fitted speeds. Required peaks above 160 km/h block export; adjust the schedule or shape.
+
+The speed controls are stored as fractions of available driving time. On screen they are mapped onto full elapsed time including stop bands. This lets pauses shift the graph naturally while the full trip remains visible. Stops are positioned from their location along the road geometry, with stationary GPS coordinates during each stop. Speed controls linearly interpolate; explicit stop boundaries can change speed abruptly. This is a controlled synthetic trace editor, not a calibrated vehicle dynamics model.
+
+## Recording format
+
+CSV is recommended and contains exactly `timestamp,latitude,longitude`. JSON and GPX are also available. Each recording has a neutral trip filename with no direction labels inside it. UTC timestamps are departure plus exact multiples of 10 seconds. If arrival is not on that grid, the final GPS fix precedes arrival; the exact manually chosen arrival remains in the separate manifest and graph. No padded sample or irregular endpoint is added.
+
+Every recording starts at its trip-specific S and ends at its trip-specific E. A/B are route references only. Direction is an explicit classification for export folders and does not move S/E or reverse detours. The chosen arrival time fits travel to E. Completion uses the OSRM road endpoint at E, preserving selected map coordinates separately. A terminal stop at that endpoint is excluded because recording has already ended. A trailing zero-speed plateau that would reach the endpoint before the chosen arrival is rejected rather than recording an extra dwell.
+
+Manifests preserve `source: synthetic`, fixed endpoint identifiers and coordinates, the recording completion target/reason/time, trip direction, departure/arrival, seed, speed fit, actual stop events, geometry and all scenario settings. Project JSON restores manually designed trips. Same geometry, settings and seed reproduce identical recording rows. Older manual projects keep existing trips, times, speed curves and seeds. Shared intermediate locations and geometry are copied into each existing trip, then removed from the route definition. These copies are independent; disabled historical stops require rebuilding only that trip’s path. Original v1/v2/v3 browser backups remain intact under their old keys. New data uses project schema version 4. Migrating an existing trip copies its old directional A/B endpoints into its own editable S/E while preserving its cached path and recording behavior. Automated v1 batch settings are not converted into trips.
+
+## Services and limits
+
+Map tiles use OpenStreetMap, and routing defaults to the public OSRM demo. Internet access is required for those services; the configured OSRM server receives selected waypoints. Simulation, browser storage, backups and exports run locally in the browser. Use your own OSRM server for sustained routing loads.
+
+Limits: 50 routes, 2 fixed map endpoints per route and 2 independent recording endpoints plus up to 98 intermediate map points per trip, 1,000 manually added trips per route, 1,000 speed controls per trip, 24 hours per trip, 7,200 seconds per base stop duration, one million rows per route ZIP and two million per project ZIP.
+
+`npm test` verifies geometry, encodings, manual schedules, ten-second sampling, whole-trip curves, zero-speed stops, fixed arrival under variation, reproducibility and invalid inputs.
+
+Vehicle speed generation: choose Jeepney, Modern jeepney, Bus or Tricycle and an average driving speed (1–80 km/h). These are illustrative synthetic styles, not calibrated fleet measurements. Randomize entire curve replaces only the selected trip’s curve with seeded controls across its full driving interval (roughly 10 seconds; capped at 1,000 controls), normalized to the requested mean before schedule fitting. Extra per-control variation resets to zero. Manual arrival remains authoritative, and the actual fitted driving/overall averages are displayed. Set arrival from average explicitly updates arrival using distance / average plus seeded stop seconds, then generates the curve. Round-second arrivals can slightly round the actual average. Changing the seed and pressing Randomize reproduces that seed’s curve.
+
+Passenger riding/dropping is a separate map mode and an action on existing stops. It produces seed-based integer durations from 10 through 30 seconds inclusive, exempt from general stop variation. Clicking the stop action again rerolls reproducibly; changing the trip seed updates passenger pauses. Editing the duration manually converts it to an ordinary stop.
